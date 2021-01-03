@@ -1,4 +1,4 @@
-package com.wjz.security;
+package com.wjz.shop.security;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
