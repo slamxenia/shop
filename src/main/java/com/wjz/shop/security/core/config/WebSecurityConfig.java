@@ -1,6 +1,8 @@
 package com.wjz.shop.security.core.config;
 
 import com.wjz.shop.security.handler.CustomAccessDeniedHandler;
+import com.wjz.shop.security.handler.CustomAuthenticationFailureHandler;
+import com.wjz.shop.security.handler.CustomAuthenticationSuccessHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
@@ -12,7 +14,12 @@ import org.springframework.security.config.annotation.web.configuration.WebSecur
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.authentication.rememberme.InMemoryTokenRepositoryImpl;
+import org.springframework.security.web.authentication.rememberme.JdbcTokenRepositoryImpl;
+import org.springframework.security.web.authentication.rememberme.PersistentTokenRepository;
+import org.springframework.session.data.redis.config.annotation.web.http.EnableRedisHttpSession;
 
+import javax.sql.DataSource;
 import java.beans.BeanProperty;
 
 @EnableWebSecurity
@@ -20,10 +27,19 @@ import java.beans.BeanProperty;
 public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Autowired
+    private DataSource dataSource;
+
+    @Autowired
     private UserDetailsService userDetailsService;
 
     @Autowired
     private CustomAccessDeniedHandler accessDeniedHandler;
+
+    @Autowired
+    private CustomAuthenticationSuccessHandler authenticationSuccessHandler;
+
+    @Autowired
+    private CustomAuthenticationFailureHandler authenticationFailureHandler;
 
     @Override
     protected void configure(AuthenticationManagerBuilder auth) throws Exception {
@@ -37,24 +53,66 @@ public class WebSecurityConfig extends WebSecurityConfigurerAdapter {
 
     @Override
     protected void configure(HttpSecurity http) throws Exception {
-        http.formLogin()
-                .successHandler((httpServletRequest, httpServletResponse, authentication) -> {
-                    httpServletResponse.setContentType("application/json,charset=utf-8");
-                    httpServletResponse.getWriter().println(authentication);
-                })
+        http
+                .csrf().disable()
+//              .addFilterBefore()
+
+                .formLogin()
+                .successHandler(authenticationSuccessHandler)
+                .failureHandler(authenticationFailureHandler)
+
+                .and()
+                .rememberMe()
+                .key("rem-me-key")
+                .rememberMeCookieName("remember-me-cookie")
+                .rememberMeParameter("remember-me")  // remember-me field name in form.
+                .tokenRepository(this.persistentTokenRepository())
+                .tokenValiditySeconds(1*24*60*60)
+
+                .and()
+                .exceptionHandling()
+//              .authenticationEntryPoint()
+                .accessDeniedHandler(accessDeniedHandler)
+
+//              .and()
+//              .headers()
+//              .frameOptions()
+//              .sameOrigin()
+
                 .and()
                 .authorizeRequests()
                 .antMatchers("/h2/**").permitAll()
                 .antMatchers("/admin/**").hasAnyAuthority("admin")
                 .antMatchers("/user/**").hasAnyAuthority("user")
                 .anyRequest().authenticated()
+
+//                .and()
+//                .apply()
+
                 .and()
-                .exceptionHandling()
-                .accessDeniedHandler(accessDeniedHandler)
+                .logout().logoutUrl("/logout")
+                .deleteCookies("JSESSIONID")
+
                 .and()
-                .logout()
-                .and()
-                .cors().disable();
+                .sessionManagement()
+                .invalidSessionUrl("/session/invalid")
+//              .expiredSessionStrategy()
+                .maximumSessions(2)
+                ;
+    }
+
+
+    @Bean
+    public PersistentTokenRepository persistentTokenRepository() {
+        JdbcTokenRepositoryImpl db = new JdbcTokenRepositoryImpl();
+        db.setDataSource(dataSource);
+        return db;
+    }
+
+    @Bean
+    public PersistentTokenRepository persistentTokenInMemoryRepository() {
+        InMemoryTokenRepositoryImpl memory = new InMemoryTokenRepositoryImpl();
+        return memory;
     }
 
     @Bean
